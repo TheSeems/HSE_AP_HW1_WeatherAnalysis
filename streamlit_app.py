@@ -3,7 +3,6 @@ from datetime import datetime
 
 import aiohttp
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -32,24 +31,25 @@ async def get_current_temperature_async(city, api_key):
             return data["main"]["temp"]
 
 
-def is_temperature_normal(data, current_city, current_city_temp, season):
-    seasonal_mean = data[(data['city'] == current_city) & (data['season'] == season)]['seasonal_mean'].values[0]
-    seasonal_std = data[(data['city'] == current_city) & (data['season'] == season)]['seasonal_std'].values[0]
+def is_temperature_normal(city_data, current_city_temp, season):
+    seasonal_mean = city_data[city_data['season'] == season]['temp_m_mean'].values[0]
+    seasonal_std = city_data[city_data['season'] == season]['temp_m_std'].values[0]
     return seasonal_mean - 2 * seasonal_std <= current_city_temp <= seasonal_mean + 2 * seasonal_std
 
 
+def rolling_mean(x):
+    return x.rolling(window=30, center=True).mean()
+
+
+def rolling_std(x):
+    return x.rolling(window=30, center=True).std()
+
+
 def process_data(df):
-    seasonal_stats = df.groupby(['city', 'season'])['temperature'].agg(['mean', 'std'])
-    seasonal_stats = seasonal_stats.rename(columns={'mean': 'seasonal_mean', 'std': 'seasonal_std'})
-    df = df.merge(seasonal_stats, on=['city', 'season'], how='left')
-    df["temp_m_avg"] = df.groupby("city")["temperature"].transform(
-        lambda x: x.rolling(window=30, center=True).apply(np.nanmedian)
-    )
-    df["temp_m_std"] = df.groupby("city")["temperature"].transform(
-        lambda x: x.rolling(window=30, center=True).apply(np.nanstd)
-    )
-    df["anomaly"] = ((df["temperature"] < df["temp_m_avg"] - 2 * df["temp_m_std"])
-                     | (df["temperature"] > df["temp_m_avg"] + 2 * df["temp_m_std"]))
+    df["temp_m_mean"] = df.groupby("city")["temperature"].transform(rolling_mean)
+    df["temp_m_std"] = df.groupby("city")["temperature"].transform(rolling_std)
+    df["anomaly"] = ((df["temperature"] < df["temp_m_mean"] - 2 * df["temp_m_std"])
+                     | (df["temperature"] > df["temp_m_mean"] + 2 * df["temp_m_std"]))
     return df
 
 
@@ -93,7 +93,7 @@ async def main():
 
         st.subheader("Сезонные профили")
         season_profile = (
-            city_data.groupby("season")["temperature"].agg(["mean", "std"]).reset_index()
+            city_data.groupby("season")["temp_m_mean"].agg(["mean", "std"]).reset_index()
         )
         plt.figure(figsize=(10, 6))
         plt.errorbar(
@@ -107,7 +107,7 @@ async def main():
             mew=4,
             label="Средняя температура",
         )
-        plt.xticks(ticks=range(len(seasons)), labels=season_profile["season"])
+        plt.xticks(ticks=range(len(seasons)), labels=season_profile["season"].unique())
         plt.xlabel("Время года")
         plt.ylabel("Температура, °C")
         plt.title("Сезонные профили температуры")
@@ -115,7 +115,7 @@ async def main():
         for i, row in season_profile.iterrows():
             plt.text(
                 row["season"],
-                row["mean"] + 1.2,
+                row["mean"] + 0.75,
                 f"         {round(row['mean'], 2)}",
                 ha="center",
                 va="bottom",
@@ -146,12 +146,12 @@ async def main():
             plt.scatter(MONTH_TO_SEASON[now.month], current_temp, color="red", label="Текущая температура")
             plt.text(
                 MONTH_TO_SEASON[now.month],
-                current_temp + 1.2,
+                current_temp + 0.75,
                 f"         {round(current_temp, 2)}",
                 ha="center",
                 va="bottom",
             )
-            plt.xticks(ticks=range(len(seasons)), labels=season_profile["season"])
+            plt.xticks(ticks=range(len(seasons)), labels=season_profile["season"].unique())
             plt.xlabel("Время года")
             plt.ylabel("Температура, °C")
             plt.title("Сезонные профили температуры")
@@ -159,14 +159,14 @@ async def main():
             for i, row in season_profile.iterrows():
                 plt.text(
                     row["season"],
-                    row["mean"] + 1.5,
+                    row["mean"] + 1.1,
                     f"         {round(row['mean'], 2)}",
                     ha="center",
                     va="bottom",
                 )
             plt.legend()
 
-            normal = is_temperature_normal(city_data, selected_city, current_temp, MONTH_TO_SEASON[now.month])
+            normal = is_temperature_normal(city_data, current_temp, MONTH_TO_SEASON[now.month])
             if normal:
                 st.write('Температура классифицирована как нормальная')
             else:

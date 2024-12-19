@@ -59,11 +59,11 @@ async def main():
     if uploaded_file is not None:
         data = pd.read_csv(uploaded_file)
         data["timestamp"] = pd.to_datetime(data["timestamp"])
-        data = process_data(data)
 
         selected_city = st.selectbox("Выберите город", data["city"].unique())
         seasons = data["season"].unique()
         city_data = data[data["city"] == selected_city]
+        city_data = process_data(city_data)
 
         st.header(f"Статистика по {selected_city}")
         st.write(city_data.describe())
@@ -166,7 +166,7 @@ async def main():
                 )
             plt.legend()
 
-            normal = is_temperature_normal(data, selected_city, current_temp, MONTH_TO_SEASON[now.month])
+            normal = is_temperature_normal(city_data, selected_city, current_temp, MONTH_TO_SEASON[now.month])
             if normal:
                 st.write('Температура классифицирована как нормальная')
             else:
